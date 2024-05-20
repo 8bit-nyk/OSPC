@@ -8,11 +8,12 @@ function output = ospc_CRF(image_folder_path, exposure_file_path)
     
     % Compute the Camera Response Function (CRF) parameters
     output = computeCRF(A);
+    %output=1;
 end
 
 function [window, step, t, image1_list, image2_list] = initializeParameters()
     % Specify and initialize adjustable parameters
-    window = 899;
+    window = 200;
     step = 100;
     image1_list = 0:0+window; % 0:0+window
     image2_list = step:step+window;
@@ -33,20 +34,21 @@ function [I1, I2, r] = loadImagePairAndExposureRatio(image_folder_path, exposure
     %Read form TUM dataset
     image1_num=get_num_image(image1_num) ;
     image2_num=get_num_image(image2_num) ;
-    image1=im2double(imread(image_folder_path + image1_num + ".png"));
-    image2=im2double(imread(image_folder_path + image2_num + ".png"));
+    image1=im2double(imread(image_folder_path + image1_num + ".jpg"));
+    image2=im2double(imread(image_folder_path + image2_num + ".jpg"));
   
     I1 = im2gray(image1);
     I2 = im2gray(image2);
     
     % Load exposure values and calculate exposure ratio
-    temp_exposures = readmatrix(exposure_file_path);
-    image1_exposure = temp_exposures(str2num(image1_num) + 1, 2);  
-    image2_exposure = temp_exposures(str2num(image2_num) + 1, 2);
+     temp_exposures = readmatrix(exposure_file_path);
+    % image1_exposure = temp_exposures(str2num(image1_num) + 1, 2);  
+    % image2_exposure = temp_exposures(str2num(image2_num) + 1, 2);
     % %Read from TUM exposure file format
-    % image1_exposure = temp_exposures(str2num(image1_num) + 1, 3);
-    % image2_exposure = temp_exposures(str2num(image2_num) + 1, 3);
+    image1_exposure = temp_exposures(str2num(image1_num) + 1, 3);
+    image2_exposure = temp_exposures(str2num(image2_num) + 1, 3);
     r = image1_exposure / image2_exposure;
+    
 end
 
 function radius_map = computeRadiusMap(I)
@@ -59,28 +61,35 @@ function radius_map = computeRadiusMap(I)
         end
     end
     radius_map = radius_map / max(radius_map, [], 'all');
+   
 end
 
 function [A] = processImagePairs(image_folder_path, exposure_file_path, t, image1_list, image2_list)
     A = [];
-    length_matchpts=1;
+    length_matchpts=[1];
     % Process each image pair
     for pair = 1:size(image1_list, 2)
         % Load images and calculate exposure ratio
         [I1, I2, r] = loadImagePairAndExposureRatio(image_folder_path, exposure_file_path, image1_list(pair), image2_list(pair));
-
+        
         % Compute radius map
         radius_map_f1 = computeRadiusMap(I1);
+       % Save the radius map as an image
+        %imwrite(radius_map_f1, sprintf('outputs/images_ref/radius_map_pair_%d.png', pair));
+
 
         % Process image pair if exposure ratio is within the desired range
         if r < 0.92 || r > 1.08
+            % str = sprintf("Ratio accepted in Refactored");
+            % disp(str);
             [A_pair, M1_list, ~] = processSelectedImagePair(I1, I2, r, radius_map_f1, t);
             A = [A; A_pair];
         end
+        length_matchpts =[ length_matchpts size(M1_list,2) ];
         
-       % length_matchpts=[ length_matchpts size(M1_list,2) ];
     end
-  
+    save("outputs/len_mpoints_ref.mat","length_matchpts");
+
 end
 
 function [A, M1_list, M2_list] = processSelectedImagePair(I1, I2, r, radius_map, t)
@@ -88,7 +97,7 @@ function [A, M1_list, M2_list] = processSelectedImagePair(I1, I2, r, radius_map,
     draw =0;
     ratio_std = 0.1;  % Adjust this as needed
     [X_image1, X_image2] = sift(I1, I2,draw);
-    
+   
     % Remove outliers based on distance
     [X_image1, X_image2] = removeOutliers(X_image1, X_image2);
     
@@ -126,6 +135,7 @@ function [A, M1_list, M2_list] = processMatchedPoints(I1, I2, X_image1, X_image2
     A = [];
     M1_list = [];
     M2_list = [];
+    counter =1;
     %iterate over clean Ximage_1 after direction filtering
     for i = 1:size(X_image1, 2)
         x_M1 = round(X_image1(2, i));
@@ -145,7 +155,11 @@ function [A, M1_list, M2_list] = processMatchedPoints(I1, I2, X_image1, X_image2
         
         M1_list = [M1_list, M1];
         M2_list = [M2_list, M2];
-        A = [A; (1 - r), (M1 - r*M2), (M1^2 - r*M2^2)];
+        %A = [A; (1 - r), (M1 - r*M2), (M1^2 - r*M2^2)];
+        row=[ (1 - r) (M1 - r*M2)   (M1^2- r*M2^2)];
+        
+        A(counter,:)=row;   
+        counter=counter + 1;
     end
 end
 
@@ -155,8 +169,8 @@ function output = computeCRF(A)
         error('The matrix A should not be empty.');
     end
    % Define the original matrix A
-    A_all = A
-    
+    A_all = A;
+    save("outputs/debug_ref.mat","A_all");
     % Define the number of elements in vector x
     n = 3;
     
